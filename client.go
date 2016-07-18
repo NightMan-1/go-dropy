@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"time"
 
 	"github.com/tj/go-dropbox"
 )
@@ -214,7 +215,7 @@ more:
 	return
 }
 
-// Upload reader to path.
+// Upload reader to path (must be less than 150MB).
 func (c *Client) Upload(path string, r io.Reader) error {
 	_, err := c.Files.Upload(&dropbox.UploadInput{
 		Mode:   dropbox.WriteModeOverwrite,
@@ -224,4 +225,94 @@ func (c *Client) Upload(path string, r io.Reader) error {
 	})
 
 	return err
+}
+
+const defaultChunkSize = 125e6
+
+// UploadSessionInput request input.
+type UploadSessionOptions struct {
+	//When Size is known, UploadSession can prevent a superfluous request.
+	//If not provided, Commit.Reader will be checked for a Size() int64 method.
+	Size int64
+	//ChunkSize is the number of bytes to upload in each call to append (defaults to 125MB).
+	ChunkSize int64
+	//Commit information for uploaded file
+	Commit dropbox.UploadInput
+}
+
+// Upload reader to path (must be larger than 150MB).
+// Uses an internally managed upload session.
+// The input reader will be split into 125MB chunks.
+func (c *Client) UploadSession(path string, r io.Reader) error {
+	_, err := c.UploadSessionOptions(UploadSessionOptions{
+		ChunkSize: defaultChunkSize,
+		Commit: dropbox.UploadInput{
+			Path:           path,
+			ClientModified: time.Now(),
+			Mode:           dropbox.WriteModeOverwrite,
+			Reader:         r,
+			Mute:           true,
+		},
+	})
+
+	return err
+}
+
+// Upload reader to path (must be larger than 150MB) and specify session options.
+func (c *Client) UploadSessionOptions(opts UploadSessionOptions) (info os.FileInfo, err error) {
+	//find size and chunk size
+	if s, ok := opts.Commit.Reader.(interface {
+		Size() int64
+	}); ok && opts.Size == 0 {
+		opts.Size = s.Size()
+	}
+	if opts.ChunkSize == 0 {
+		opts.ChunkSize = defaultChunkSize
+	} else if opts.ChunkSize > 150e6 {
+		opts.ChunkSize = 150e6 //cap at 150MB
+	}
+	//upload session not required, use regular upload
+	if opts.Size > 0 && opts.ChunkSize > opts.Size && opts.Size < 150e6 {
+		out, err := c.Files.Upload(&opts.Commit)
+		if err != nil {
+			return nil, err
+		}
+		return &FileInfo{&out.Metadata}, nil
+	}
+	//prepare chunk-sized-reader
+	lr := &io.LimitedReader{R: opts.Commit.Reader, N: opts.ChunkSize}
+	//start
+	start, err := c.Files.UploadSessionStart(&dropbox.UploadSessionStartInput{Reader: lr})
+	if err != nil {
+		return nil, err
+	}
+	//initialise cursor with id and offset
+	curs := start.UploadSessionCursor
+	curs.Offset = opts.ChunkSize - lr.N
+	//while the limited reader has reached its limit
+	for lr.N == 0 {
+		//reset
+		lr.N = opts.ChunkSize
+		//upload more
+		if err = c.Files.UploadSessionAppend(&dropbox.UploadSessionAppendInput{
+			Cursor: curs,
+			Reader: lr,
+		}); err != nil {
+			return nil, err
+		}
+		curs.Offset += opts.ChunkSize - lr.N
+		//final chunk? save one call to append
+		if opts.Size > 0 && curs.Offset+opts.ChunkSize > opts.Size {
+			break
+		}
+	}
+	//finish (commit.Reader will either have 0 or less than chunkSize bytes remaining)
+	fin, err := c.Files.UploadSessionFinish(&dropbox.UploadSessionFinishInput{
+		Cursor: curs,
+		Commit: opts.Commit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FileInfo{&fin.UploadOutput.Metadata}, nil
 }

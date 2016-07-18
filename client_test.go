@@ -1,6 +1,8 @@
 package dropy
 
 import (
+	"bytes"
+	"crypto/rand"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -173,4 +175,31 @@ func TestClient_Upload(t *testing.T) {
 	assert.NoError(t, err, "error reading")
 
 	assert.Equal(t, "one", string(b))
+}
+
+func TestClient_UploadSession(t *testing.T) {
+	t.Parallel()
+	c := client()
+	//880KB file
+	size := int64(880e3)
+	b := make([]byte, int(size))
+	_, err := rand.Read(b)
+	if err != nil {
+		t.Fatal("crypto fail")
+	}
+	noise := bytes.NewBuffer(b)
+	//upload in 200KB chunks
+	info, err := c.UploadSessionOptions(UploadSessionOptions{
+		Size:      size,
+		ChunkSize: 200e3,
+		Commit: dropbox.UploadInput{
+			Mute:   true,
+			Mode:   dropbox.WriteModeOverwrite,
+			Path:   "/noise.txt",
+			Reader: noise,
+		},
+	})
+
+	assert.NoError(t, err, "error session uploading file")
+	assert.Equal(t, info.Size(), size, "should be the correct size")
 }
