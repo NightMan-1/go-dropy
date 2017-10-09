@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/segmentio/go-env"
-	"github.com/tj/go-dropbox"
-	"github.com/tj/go-dropy"
+	"github.com/NightMan-1/go-dropbox"
+	"github.com/NightMan-1/go-dropy"
 )
 
 // Upload and read a file.
