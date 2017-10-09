@@ -248,7 +248,7 @@ func (c *Client) UploadSession(path string, r io.Reader) error {
 		ChunkSize: defaultChunkSize,
 		Commit: dropbox.UploadInput{
 			Path:           path,
-			ClientModified: time.Now(),
+			ClientModified: time.Now().UTC().Round(time.Second),
 			Mode:           dropbox.WriteModeOverwrite,
 			Reader:         r,
 			Mute:           true,
