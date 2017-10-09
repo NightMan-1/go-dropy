@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tj/go-dropbox"
+	"github.com/NightMan-1/go-dropbox"
 )
 
 // FileInfo wraps Dropbox file MetaData to implement os.FileInfo.
