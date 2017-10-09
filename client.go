@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/tj/go-dropbox"
+	"github.com/NightMan-1/go-dropbox"
 )
 
 // Client wraps dropbox.Client to provide higher level sugar.
